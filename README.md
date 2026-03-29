@@ -90,6 +90,41 @@ npm run build
 npm test
 ```
 
+### Local Testing with Claude Code / Codex
+
+Before publishing, you can test the MCP server locally by pointing to the built entry file:
+
+**Claude Code:**
+
+```bash
+claude mcp add mem9 -e MEM9_API_KEY=your-key -e MEM9_API_URL=http://localhost:8080 -- node /path/to/mem9-mcp/dist/index.js
+```
+
+Or in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mem9": {
+      "command": "node",
+      "args": ["/path/to/mem9-mcp/dist/index.js"],
+      "env": {
+        "MEM9_API_URL": "http://localhost:8080",
+        "MEM9_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+**Codex:**
+
+```bash
+codex mcp add mem9 -- node /path/to/mem9-mcp/dist/index.js
+```
+
+After code changes, run `npm run build` and restart the MCP client to pick up the new build.
+
 ## License
 
 Apache-2.0
