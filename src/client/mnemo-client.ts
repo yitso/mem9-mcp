@@ -20,7 +20,7 @@ export interface Memory {
   relative_age?: string;
 }
 
-/** Response from POST /memories (sync mode). */
+/** Response from POST /memories. */
 export interface StoreResponse {
   status: string;
 }
@@ -77,11 +77,10 @@ export class MnemoClient {
     this.logger = logger;
   }
 
-  /** POST /memories — store a new memory (sync mode). */
+  /** POST /memories — store a new memory. */
   async store(options: StoreOptions): Promise<StoreResponse> {
     const body: Record<string, unknown> = {
       content: options.content,
-      sync: true,
     };
     if (options.tags?.length) body.tags = options.tags;
     if (options.metadata) body.metadata = options.metadata;

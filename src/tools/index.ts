@@ -16,7 +16,7 @@ export function registerTools(
     "memory_store",
     {
       description:
-        "Store a new memory. The content will be processed by the memory service (fact extraction and reconciliation) — it is not stored verbatim. Use this when you learn something worth remembering: user preferences, project conventions, important decisions, recurring patterns, or any context that would be useful in future sessions. Do NOT store trivial or transient information like current file paths, temporary debug notes, or information that only matters in the current session. Note: the response does not include the stored memory's ID. If you need to update or delete a memory you just stored, use memory_search to find it first.",
+        "Store a new memory. The content will be processed asynchronously by the memory service (fact extraction and reconciliation) — it is not stored verbatim and may take a few seconds to become searchable. Use this when you learn something worth remembering: user preferences, project conventions, important decisions, recurring patterns, or any context that would be useful in future sessions. Do NOT store trivial or transient information like current file paths, temporary debug notes, or information that only matters in the current session. Note: the response does not include the stored memory's ID. If you need to update or delete a memory you just stored, use memory_search to find it first.",
       inputSchema: {
         content: z.string().describe(
           "The memory content to store. Be specific and self-contained — this should make sense when retrieved later without additional context.",

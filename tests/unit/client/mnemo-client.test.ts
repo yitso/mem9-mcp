@@ -47,7 +47,7 @@ describe("MnemoClient", () => {
   });
 
   describe("store", () => {
-    it("sends POST with sync:true and correct headers", async () => {
+    it("sends POST with correct headers", async () => {
       const fetchMock = mockFetch(200, { status: "ok" });
       globalThis.fetch = fetchMock;
 
@@ -65,7 +65,7 @@ describe("MnemoClient", () => {
 
       const body = JSON.parse(init.body as string);
       expect(body.content).toBe("hello world");
-      expect(body.sync).toBe(true);
+      expect(body.sync).toBeUndefined();
     });
 
     it("includes optional fields when provided", async () => {
