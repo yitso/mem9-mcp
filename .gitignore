@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# mem9 credentials
+.env
+.env.mem9
+.mcp.json

@@ -1,0 +1,30 @@
+{
+  "name": "@mem9/mcp-server",
+  "version": "0.1.0",
+  "description": "Universal MCP Server for mem9 memory service",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mem9-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["mcp", "mem9", "memory", "ai-agent"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
