@@ -6,7 +6,10 @@ Universal MCP Server for mem9 memory service. One server, all platforms.
 
 ```bash
 # Requires a running mnemo-server and API key
-npx @mem9/mcp-server
+git clone https://github.com/you06/mem9-mcp.git
+cd mem9-mcp
+npm install
+npm start
 ```
 
 ### Environment Variables
