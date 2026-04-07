@@ -9,7 +9,6 @@ Universal MCP Server for mem9 memory service. One server, all platforms.
 git clone https://github.com/you06/mem9-mcp.git
 cd mem9-mcp
 npm install
-npm start
 ```
 
 ### Environment Variables
@@ -34,6 +33,61 @@ Agent ID is auto-detected from platform environment variables (`CURSOR_WORKSPACE
 | `memory_get` | Retrieve a specific memory by ID |
 | `memory_update` | Update an existing memory (direct field update) |
 | `memory_delete` | Delete a memory |
+
+## Development
+
+```bash
+npm install
+npm run build
+npm test
+```
+
+### Local Testing with Claude Code / Codex
+
+Before publishing, you can test the MCP server locally by pointing to the built entry file:
+
+**Claude Code:**
+
+```bash
+claude mcp add mem9 -e MEM9_API_KEY=your-key -e MEM9_API_URL=http://localhost:8080 -- node /path/to/mem9-mcp/dist/index.js
+```
+
+Or in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mem9": {
+      "command": "node",
+      "args": ["/path/to/mem9-mcp/dist/index.js"],
+      "env": {
+        "MEM9_API_URL": "http://localhost:8080",
+        "MEM9_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+**Codex:**
+
+```bash
+codex mcp add mem9 -- node /path/to/mem9-mcp/dist/index.js
+```
+
+Or in `.codex/config.toml`:
+
+```toml
+[mcp_servers.mem9]
+command = "node"
+args = ["/path/to/mem9-mcp/dist/index.js"]
+
+[mcp_servers.mem9.env]
+MEM9_API_URL = "http://localhost:8080"
+MEM9_API_KEY = "your-key"
+```
+
+After code changes, run `npm run build` and restart the MCP client to pick up the new build.
 
 ## Platform Setup
 
@@ -85,48 +139,17 @@ Or in `.mcp.json`:
 codex mcp add mem9 -- npx -y @mem9/mcp-server
 ```
 
-## Development
+Or in `.codex/config.toml`:
 
-```bash
-npm install
-npm run build
-npm test
+```toml
+[mcp_servers.mem9]
+command = "npx"
+args = ["-y", "@mem9/mcp-server"]
+
+[mcp_servers.mem9.env]
+MEM9_API_URL = "http://localhost:8080"
+MEM9_API_KEY = "your-key"
 ```
-
-### Local Testing with Claude Code / Codex
-
-Before publishing, you can test the MCP server locally by pointing to the built entry file:
-
-**Claude Code:**
-
-```bash
-claude mcp add mem9 -e MEM9_API_KEY=your-key -e MEM9_API_URL=http://localhost:8080 -- node /path/to/mem9-mcp/dist/index.js
-```
-
-Or in `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "mem9": {
-      "command": "node",
-      "args": ["/path/to/mem9-mcp/dist/index.js"],
-      "env": {
-        "MEM9_API_URL": "http://localhost:8080",
-        "MEM9_API_KEY": "your-key"
-      }
-    }
-  }
-}
-```
-
-**Codex:**
-
-```bash
-codex mcp add mem9 -- node /path/to/mem9-mcp/dist/index.js
-```
-
-After code changes, run `npm run build` and restart the MCP client to pick up the new build.
 
 ## License
 
