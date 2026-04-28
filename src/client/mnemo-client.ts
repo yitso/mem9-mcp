@@ -92,7 +92,10 @@ export class MnemoClient {
     };
     if (options.tags?.length) body.tags = options.tags;
     if (options.metadata) body.metadata = options.metadata;
-    if (options.session_id) body.session_id = options.session_id;
+    const normalizedSessionId = normalizeSessionId(options.session_id);
+    if (normalizedSessionId !== undefined) {
+      body.session_id = normalizedSessionId;
+    }
 
     return this.request<StoreResponse>("POST", "/memories", { body });
   }
@@ -240,6 +243,11 @@ export function parseRetryAfterMs(
   }
 
   return Math.max(0, retryAt - now);
+}
+
+function normalizeSessionId(sessionId: string | undefined): string | undefined {
+  const trimmedSessionId = sessionId?.trim();
+  return trimmedSessionId === "" ? undefined : trimmedSessionId;
 }
 
 function classifyRuntimeError(

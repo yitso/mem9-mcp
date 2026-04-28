@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -23,6 +23,8 @@ const mockLogger: Logger = {
   warn: vi.fn(),
   error: vi.fn(),
 };
+
+const cleanupTasks: Array<() => Promise<void>> = [];
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
   return {
@@ -61,12 +63,23 @@ async function createToolPair() {
   await server.connect(serverTransport);
   await client.connect(clientTransport);
 
+  cleanupTasks.push(async () => {
+    await Promise.allSettled([
+      client.close(),
+      server.close(),
+    ]);
+  });
+
   return { client, mnemoClient, server };
 }
 
 describe("registerTools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(cleanupTasks.splice(0).map((cleanup) => cleanup()));
   });
 
   it("lists all 5 tools with the expected input schema", async () => {
@@ -181,6 +194,58 @@ describe("registerTools", () => {
     expect(mockLogger.debug).not.toHaveBeenCalledWith(
       "memory_search",
       expect.objectContaining({ query }),
+    );
+  });
+
+  it("treats blank session_id as absent in logging and store calls", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    const storeSpy = vi
+      .spyOn(mnemoClient, "store")
+      .mockResolvedValue({ status: "ok" });
+
+    await client.callTool({
+      name: "memory_store",
+      arguments: {
+        content: "Store without a real session id",
+        session_id: "   ",
+      },
+    });
+
+    expect(storeSpy).toHaveBeenCalledWith({
+      content: "Store without a real session id",
+      tags: undefined,
+      metadata: undefined,
+      session_id: undefined,
+    });
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "memory_store",
+      expect.objectContaining({ hasSessionId: false }),
+    );
+  });
+
+  it("trims session_id before logging and store calls", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    const storeSpy = vi
+      .spyOn(mnemoClient, "store")
+      .mockResolvedValue({ status: "ok" });
+
+    await client.callTool({
+      name: "memory_store",
+      arguments: {
+        content: "Store with padded session id",
+        session_id: "  session-1  ",
+      },
+    });
+
+    expect(storeSpy).toHaveBeenCalledWith({
+      content: "Store with padded session id",
+      tags: undefined,
+      metadata: undefined,
+      session_id: "session-1",
+    });
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "memory_store",
+      expect.objectContaining({ hasSessionId: true }),
     );
   });
 

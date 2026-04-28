@@ -36,7 +36,7 @@ export function registerTools(
       },
     },
     async ({ content, tags, metadata, session_id }) => {
-      const normalizedSessionId = session_id === "" ? undefined : session_id;
+      const normalizedSessionId = session_id?.trim() || undefined;
 
       logger.debug("memory_store", {
         contentRedacted: true,

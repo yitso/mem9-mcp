@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -22,6 +22,8 @@ const mockLogger: Logger = {
   warn: vi.fn(),
   error: vi.fn(),
 };
+
+const cleanupTasks: Array<() => Promise<void>> = [];
 
 /**
  * Helper: create a linked MCP client+server pair using in-memory transport.
@@ -48,6 +50,13 @@ async function createTestPair() {
   await mcpServer.connect(serverTransport);
   await client.connect(clientTransport);
 
+  cleanupTasks.push(async () => {
+    await Promise.allSettled([
+      client.close(),
+      mcpServer.close(),
+    ]);
+  });
+
   return { client, mnemoClient, mcpServer };
 }
 
@@ -61,6 +70,10 @@ describe("Integration: Full CRUD roundtrip", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(cleanupTasks.splice(0).map((cleanup) => cleanup()));
   });
 
   it("lists all 5 tools", async () => {
@@ -269,6 +282,10 @@ describe("Integration: Error scenarios", () => {
     vi.restoreAllMocks();
   });
 
+  afterEach(async () => {
+    await Promise.allSettled(cleanupTasks.splice(0).map((cleanup) => cleanup()));
+  });
+
   it("returns error for 401 Unauthorized", async () => {
     const { client } = await createTestPair();
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -400,6 +417,10 @@ describe("Integration: Concurrent tool calls", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(cleanupTasks.splice(0).map((cleanup) => cleanup()));
   });
 
   it("handles parallel searches without cross-talk", async () => {

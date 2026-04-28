@@ -92,6 +92,36 @@ describe("MnemoClient", () => {
       expect(body.session_id).toBe("sess-1");
       expect(body.sync).toBe(true);
     });
+
+    it("omits blank session_id values", async () => {
+      globalThis.fetch = mockFetch(200, { status: "ok" });
+      const client = new MnemoClient(mockConfig, mockLogger);
+      await client.store({
+        content: "test",
+        session_id: "   ",
+      });
+
+      const body = JSON.parse(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+          .body as string,
+      );
+      expect(body.session_id).toBeUndefined();
+    });
+
+    it("trims surrounding whitespace from session_id values", async () => {
+      globalThis.fetch = mockFetch(200, { status: "ok" });
+      const client = new MnemoClient(mockConfig, mockLogger);
+      await client.store({
+        content: "test",
+        session_id: "  sess-1  ",
+      });
+
+      const body = JSON.parse(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+          .body as string,
+      );
+      expect(body.session_id).toBe("sess-1");
+    });
   });
 
   describe("search", () => {
@@ -288,6 +318,10 @@ describe("MnemoClient", () => {
       const retryAfter = new Date(now + 2000).toUTCString();
 
       expect(parseRetryAfterMs(retryAfter, now)).toBe(2000);
+    });
+
+    it("parses Retry-After delta-seconds with leading zeros", () => {
+      expect(parseRetryAfterMs("012")).toBe(12000);
     });
 
     it("ignores invalid Retry-After values", () => {
