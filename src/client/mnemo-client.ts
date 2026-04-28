@@ -228,8 +228,9 @@ export function parseRetryAfterMs(
   value: string,
   now = Date.now(),
 ): number | undefined {
-  const seconds = Number.parseInt(value, 10);
-  if (!Number.isNaN(seconds) && String(seconds) === value.trim()) {
+  const trimmedValue = value.trim();
+  if (/^\d+$/.test(trimmedValue)) {
+    const seconds = Number.parseInt(trimmedValue, 10);
     return Math.max(0, seconds * 1000);
   }
 
