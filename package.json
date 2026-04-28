@@ -13,13 +13,18 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
-  "keywords": ["mcp", "mem9", "memory", "ai-agent"],
+  "keywords": [
+    "mcp",
+    "mem9",
+    "memory",
+    "ai-agent"
+  ],
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

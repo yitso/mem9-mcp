@@ -53,13 +53,51 @@ describe("loadConfig", () => {
     expect(config.searchLimit).toBe(20);
   });
 
-  it("falls back to defaults for invalid numeric values", () => {
+  it("rejects malformed numeric values", () => {
     process.env.MEM9_API_KEY = "test-key";
     process.env.MEM9_TIMEOUT_MS = "not-a-number";
+    expect(() => loadConfig()).toThrow("MEM9_TIMEOUT_MS must be a positive integer.");
+
+    process.env.MEM9_TIMEOUT_MS = "10000";
     process.env.MEM9_SEARCH_LIMIT = "abc";
-    const config = loadConfig();
-    expect(config.timeoutMs).toBe(10000);
-    expect(config.searchLimit).toBe(10);
+    expect(() => loadConfig()).toThrow("MEM9_SEARCH_LIMIT must be a positive integer.");
+  });
+
+  it("rejects non-canonical integer strings", () => {
+    process.env.MEM9_API_KEY = "test-key";
+
+    process.env.MEM9_TIMEOUT_MS = "1.5";
+    expect(() => loadConfig()).toThrow("MEM9_TIMEOUT_MS must be a positive integer.");
+
+    process.env.MEM9_TIMEOUT_MS = "1e3";
+    expect(() => loadConfig()).toThrow("MEM9_TIMEOUT_MS must be a positive integer.");
+
+    process.env.MEM9_TIMEOUT_MS = "10000";
+    process.env.MEM9_SEARCH_LIMIT = "10foo";
+    expect(() => loadConfig()).toThrow("MEM9_SEARCH_LIMIT must be a positive integer.");
+  });
+
+  it("rejects zero or negative timeout values", () => {
+    process.env.MEM9_API_KEY = "test-key";
+    process.env.MEM9_TIMEOUT_MS = "0";
+    expect(() => loadConfig()).toThrow("MEM9_TIMEOUT_MS must be a positive integer.");
+
+    process.env.MEM9_TIMEOUT_MS = "-1";
+    expect(() => loadConfig()).toThrow("MEM9_TIMEOUT_MS must be a positive integer.");
+  });
+
+  it("rejects zero, negative, or oversized search limits", () => {
+    process.env.MEM9_API_KEY = "test-key";
+    process.env.MEM9_SEARCH_LIMIT = "0";
+    expect(() => loadConfig()).toThrow("MEM9_SEARCH_LIMIT must be a positive integer.");
+
+    process.env.MEM9_SEARCH_LIMIT = "-1";
+    expect(() => loadConfig()).toThrow("MEM9_SEARCH_LIMIT must be a positive integer.");
+
+    process.env.MEM9_SEARCH_LIMIT = "51";
+    expect(() => loadConfig()).toThrow(
+      "MEM9_SEARCH_LIMIT must be less than or equal to 50.",
+    );
   });
 
   it("falls back to 'info' for invalid log level", () => {

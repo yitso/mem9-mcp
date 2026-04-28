@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MnemoClient } from "../../../src/client/mnemo-client.js";
-import { MnemoError } from "../../../src/errors/error-mapper.js";
+import { MnemoClient, parseRetryAfterMs } from "../../../src/client/mnemo-client.js";
+import {
+  createInvalidResponseError,
+  createUnexpectedClientError,
+  createTimeoutError,
+  MnemoError,
+} from "../../../src/errors/error-mapper.js";
 import type { Config } from "../../../src/config/config.js";
 import type { Logger } from "../../../src/utils/logger.js";
 
@@ -65,7 +70,7 @@ describe("MnemoClient", () => {
 
       const body = JSON.parse(init.body as string);
       expect(body.content).toBe("hello world");
-      expect(body.sync).toBeUndefined();
+      expect(body.sync).toBe(true);
     });
 
     it("includes optional fields when provided", async () => {
@@ -85,6 +90,7 @@ describe("MnemoClient", () => {
       expect(body.tags).toEqual(["a", "b"]);
       expect(body.metadata).toEqual({ key: "val" });
       expect(body.session_id).toBe("sess-1");
+      expect(body.sync).toBe(true);
     });
   });
 
@@ -190,6 +196,38 @@ describe("MnemoClient", () => {
         mcpCode: "InvalidParams",
       });
     });
+
+    it("classifies timeout errors without reporting connectivity loss", async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(
+        new DOMException("The operation timed out.", "TimeoutError"),
+      );
+      const client = new MnemoClient(mockConfig, mockLogger);
+
+      await expect(client.get("abc")).rejects.toEqual(createTimeoutError(5000));
+    });
+
+    it("classifies invalid JSON responses as response errors", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError("Unexpected token < in JSON")),
+        headers: new Headers(),
+      });
+      const client = new MnemoClient(mockConfig, mockLogger);
+
+      await expect(client.get("abc")).rejects.toEqual(
+        createInvalidResponseError("Unexpected token < in JSON"),
+      );
+    });
+
+    it("does not misreport unexpected local errors as connectivity failures", async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("mock bug"));
+      const client = new MnemoClient(mockConfig, mockLogger);
+
+      await expect(client.get("abc")).rejects.toEqual(
+        createUnexpectedClientError("mock bug"),
+      );
+    });
   });
 
   describe("retry", () => {
@@ -243,6 +281,17 @@ describe("MnemoClient", () => {
       const result = await client.get("abc");
       expect(result.id).toBe("abc");
       expect(callCount).toBe(2);
+    });
+
+    it("parses Retry-After HTTP-date values", () => {
+      const now = Date.parse("2026-04-28T00:00:00Z");
+      const retryAfter = new Date(now + 2000).toUTCString();
+
+      expect(parseRetryAfterMs(retryAfter, now)).toBe(2000);
+    });
+
+    it("ignores invalid Retry-After values", () => {
+      expect(parseRetryAfterMs("not-a-date")).toBeUndefined();
     });
 
     it("does not retry on 400", async () => {

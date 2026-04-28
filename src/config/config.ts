@@ -16,6 +16,9 @@ export interface Config {
 }
 
 const LOG_LEVELS: readonly string[] = ["debug", "info", "warn", "error"];
+const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 50;
 
 function parseLogLevel(value: string | undefined): LogLevel {
   if (value && LOG_LEVELS.includes(value)) {
@@ -47,15 +50,51 @@ export function loadConfig(): Config {
     );
   }
 
-  const timeoutMs = parseInt(process.env.MEM9_TIMEOUT_MS || "10000", 10);
-  const searchLimit = parseInt(process.env.MEM9_SEARCH_LIMIT || "10", 10);
+  const timeoutMs = parsePositiveIntEnv(
+    "MEM9_TIMEOUT_MS",
+    process.env.MEM9_TIMEOUT_MS,
+    DEFAULT_TIMEOUT_MS,
+  );
+  const searchLimit = parsePositiveIntEnv(
+    "MEM9_SEARCH_LIMIT",
+    process.env.MEM9_SEARCH_LIMIT,
+    DEFAULT_SEARCH_LIMIT,
+    { max: MAX_SEARCH_LIMIT },
+  );
 
   return {
     apiUrl: process.env.MEM9_API_URL || "https://api.mem9.ai",
     apiKey,
     agentId: process.env.MEM9_AGENT_ID || detectAgentId(),
     logLevel: parseLogLevel(process.env.MEM9_LOG_LEVEL),
-    timeoutMs: Number.isNaN(timeoutMs) ? 10000 : timeoutMs,
-    searchLimit: Number.isNaN(searchLimit) ? 10 : searchLimit,
+    timeoutMs,
+    searchLimit,
   };
+}
+
+function parsePositiveIntEnv(
+  name: string,
+  rawValue: string | undefined,
+  fallback: number,
+  options?: { max?: number },
+): number {
+  if (rawValue === undefined) {
+    return fallback;
+  }
+
+  const trimmedValue = rawValue.trim();
+  if (!/^[1-9]\d*$/.test(trimmedValue)) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  const parsed = Number.parseInt(trimmedValue, 10);
+  if (parsed <= 0) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  if (options?.max !== undefined && parsed > options.max) {
+    throw new Error(`${name} must be less than or equal to ${options.max}.`);
+  }
+
+  return parsed;
 }

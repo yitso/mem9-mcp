@@ -69,6 +69,33 @@ export function mapHttpError(status: number, detail: string): MnemoError {
   }
 }
 
+/** Create an error for request timeouts. */
+export function createTimeoutError(timeoutMs: number): MnemoError {
+  return new MnemoError(
+    "InternalError",
+    `Memory service request timed out after ${timeoutMs}ms.`,
+    408,
+  );
+}
+
+/** Create an error for unexpected non-JSON or malformed JSON responses. */
+export function createInvalidResponseError(detail: string): MnemoError {
+  return new MnemoError(
+    "InternalError",
+    `Memory service returned an invalid response: ${detail}`,
+    502,
+  );
+}
+
+/** Create an error for unexpected local/runtime failures in the MCP server. */
+export function createUnexpectedClientError(detail: string): MnemoError {
+  return new MnemoError(
+    "InternalError",
+    `Unexpected client error while processing memory service response: ${detail}`,
+    500,
+  );
+}
+
 /** Whether the given HTTP status code should be retried. */
 export function isRetryable(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504;

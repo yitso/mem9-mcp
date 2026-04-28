@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerTools } from "../../../src/tools/index.js";
-import { MnemoClient } from "../../../src/client/mnemo-client.js";
+import { MnemoClient, type Memory } from "../../../src/client/mnemo-client.js";
 import { MnemoError } from "../../../src/errors/error-mapper.js";
 import type { Config } from "../../../src/config/config.js";
 import type { Logger } from "../../../src/utils/logger.js";
@@ -22,143 +24,240 @@ const mockLogger: Logger = {
   error: vi.fn(),
 };
 
-/** Create an McpServer with tools registered, and extract the registered tool handlers. */
-function setupServer() {
+function makeMemory(overrides: Partial<Memory> = {}): Memory {
+  return {
+    id: "550e8400-e29b-41d4-a716-446655440001",
+    content: "Test memory content",
+    memory_type: "insight",
+    source: "mcp",
+    tags: ["test"],
+    metadata: null,
+    agent_id: "test-agent",
+    session_id: "",
+    state: "active",
+    version: 1,
+    created_at: "2026-03-29T10:00:00Z",
+    updated_at: "2026-03-29T10:00:00Z",
+    ...overrides,
+  };
+}
+
+async function createToolPair() {
   const server = new McpServer(
     { name: "test", version: "0.0.1" },
     { capabilities: { tools: {} } },
   );
-  const client = new MnemoClient(mockConfig, mockLogger);
-  registerTools(server, client, mockLogger);
-  return { server, client };
+  const mnemoClient = new MnemoClient(mockConfig, mockLogger);
+  registerTools(server, mnemoClient, mockLogger, {
+    searchLimit: mockConfig.searchLimit,
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client(
+    { name: "test-client", version: "0.0.1" },
+    { capabilities: {} },
+  );
+
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  return { client, mnemoClient, server };
 }
 
 describe("registerTools", () => {
-  let originalFetch: typeof globalThis.fetch;
-
   beforeEach(() => {
-    originalFetch = globalThis.fetch;
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
+  it("lists all 5 tools with the expected input schema", async () => {
+    const { client } = await createToolPair();
+
+    const result = await client.listTools();
+    const names = result.tools.map((tool) => tool.name);
+    expect(names).toEqual([
+      "memory_store",
+      "memory_search",
+      "memory_get",
+      "memory_update",
+      "memory_delete",
+    ]);
+
+    const searchTool = result.tools.find((tool) => tool.name === "memory_search");
+    expect(searchTool?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["query"],
+      properties: {
+        query: { type: "string" },
+        limit: { default: 10, maximum: 50 },
+        tags: { type: "array" },
+      },
+    });
   });
 
-  it("registers all 5 tools", async () => {
-    const { server } = setupServer();
-    // Access the internal tools list via the server's listTools handler.
-    // We test this by checking that the server was configured correctly.
-    // Since McpServer doesn't expose tools directly, we verify by
-    // checking no errors were thrown during registration.
-    expect(server).toBeDefined();
-  });
-
-  it("memory_store calls client.store with correct params", async () => {
-    const { client } = setupServer();
+  it("memory_store calls the tool handler and redacts logged content", async () => {
+    const { client, mnemoClient } = await createToolPair();
     const storeSpy = vi
-      .spyOn(client, "store")
+      .spyOn(mnemoClient, "store")
       .mockResolvedValue({ status: "ok" });
 
-    // Directly test the client integration
-    await client.store({
-      content: "test content",
-      tags: ["a"],
-      session_id: "sess-1",
+    const content = "User salary is 99999 and should never be logged";
+    const result = await client.callTool({
+      name: "memory_store",
+      arguments: {
+        content,
+        tags: ["sensitive"],
+        metadata: { source: "test" },
+        session_id: "session-1",
+      },
     });
 
     expect(storeSpy).toHaveBeenCalledWith({
-      content: "test content",
-      tags: ["a"],
-      session_id: "sess-1",
+      content,
+      tags: ["sensitive"],
+      metadata: { source: "test" },
+      session_id: "session-1",
     });
+    expect(result.isError).toBeFalsy();
+    expect((result.content as Array<{ type: string; text: string }>)[0].text).toBe(
+      "Memory stored successfully.",
+    );
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "memory_store",
+      expect.objectContaining({
+        contentRedacted: true,
+        contentLength: content.length,
+        tagsCount: 1,
+        metadataKeyCount: 1,
+        hasSessionId: true,
+      }),
+    );
+    expect(mockLogger.debug).not.toHaveBeenCalledWith(
+      "memory_store",
+      expect.objectContaining({ content }),
+    );
   });
 
-  it("memory_search calls client.search and formats results", async () => {
-    const { client } = setupServer();
-    vi.spyOn(client, "search").mockResolvedValue({
+  it("memory_search applies the default limit, formats results, and redacts the query", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    const searchSpy = vi.spyOn(mnemoClient, "search").mockResolvedValue({
       memories: [
-        {
-          id: "abc",
-          content: "test",
-          memory_type: "insight",
-          source: "mcp",
-          tags: [],
-          metadata: null,
-          agent_id: "",
-          session_id: "",
-          state: "active",
-          version: 1,
-          created_at: "",
-          updated_at: "",
-          score: 0.95,
-          relative_age: "1 day ago",
-        },
+        makeMemory({
+          id: "mem-001",
+          content: "Deployment uses GitHub Actions",
+          score: 0.91,
+          relative_age: "2 days ago",
+        }),
       ],
       total: 1,
       limit: 10,
       offset: 0,
     });
 
-    const result = await client.search({ query: "test" });
-    expect(result.memories).toHaveLength(1);
-    expect(result.memories[0].score).toBe(0.95);
-  });
-
-  it("memory_get calls client.get", async () => {
-    const { client } = setupServer();
-    vi.spyOn(client, "get").mockResolvedValue({
-      id: "abc",
-      content: "hello",
-      memory_type: "insight",
-      source: "mcp",
-      tags: ["x"],
-      metadata: null,
-      agent_id: "",
-      session_id: "",
-      state: "active",
-      version: 2,
-      created_at: "",
-      updated_at: "",
+    const query = "customer password reset workflow";
+    const result = await client.callTool({
+      name: "memory_search",
+      arguments: { query, tags: ["ops"] },
     });
 
-    const mem = await client.get("abc");
-    expect(mem.id).toBe("abc");
-    expect(mem.content).toBe("hello");
+    expect(searchSpy).toHaveBeenCalledWith({
+      query,
+      limit: 10,
+      tags: ["ops"],
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("Found 1 memory");
+    expect(text).toContain("mem-001");
+    expect(text).toContain("score: 0.91");
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "memory_search",
+      expect.objectContaining({
+        queryRedacted: true,
+        queryLength: query.length,
+        limit: 10,
+        tagsCount: 1,
+      }),
+    );
+    expect(mockLogger.debug).not.toHaveBeenCalledWith(
+      "memory_search",
+      expect.objectContaining({ query }),
+    );
   });
 
-  it("memory_update calls client.update with partial fields", async () => {
-    const { client } = setupServer();
-    const updateSpy = vi.spyOn(client, "update").mockResolvedValue({
-      id: "abc",
-      content: "updated",
-      memory_type: "insight",
-      source: "mcp",
-      tags: ["new-tag"],
-      metadata: null,
-      agent_id: "",
-      session_id: "",
-      state: "active",
-      version: 3,
-      created_at: "",
-      updated_at: "",
+  it("memory_get formats the memory detail result", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    vi.spyOn(mnemoClient, "get").mockResolvedValue(
+      makeMemory({
+        id: "mem-002",
+        content: "Detailed memory body",
+        relative_age: "1 hour ago",
+      }),
+    );
+
+    const result = await client.callTool({
+      name: "memory_get",
+      arguments: { id: "mem-002" },
     });
 
-    await client.update("abc", { tags: ["new-tag"] });
-    expect(updateSpy).toHaveBeenCalledWith("abc", { tags: ["new-tag"] });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("ID: mem-002");
+    expect(text).toContain("Content: Detailed memory body");
+    expect(text).toContain("Age: 1 hour ago");
   });
 
-  it("memory_delete calls client.delete", async () => {
-    const { client } = setupServer();
-    const deleteSpy = vi.spyOn(client, "delete").mockResolvedValue();
+  it("memory_update formats the updated memory detail result", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    vi.spyOn(mnemoClient, "update").mockResolvedValue(
+      makeMemory({
+        id: "mem-003",
+        content: "Updated memory",
+        version: 2,
+      }),
+    );
 
-    await client.delete("abc");
-    expect(deleteSpy).toHaveBeenCalledWith("abc");
+    const result = await client.callTool({
+      name: "memory_update",
+      arguments: { id: "mem-003", content: "Updated memory" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("Memory updated.");
+    expect(text).toContain("ID: mem-003");
+    expect(text).toContain("Version: 2");
   });
 
-  it("tool error handler wraps MnemoError", () => {
-    const err = new MnemoError("InvalidParams", "not found", 404);
-    expect(err.message).toBe("not found");
-    expect(err.mcpCode).toBe("InvalidParams");
+  it("memory_delete returns a success message", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    const deleteSpy = vi.spyOn(mnemoClient, "delete").mockResolvedValue();
+
+    const result = await client.callTool({
+      name: "memory_delete",
+      arguments: { id: "mem-004" },
+    });
+
+    expect(deleteSpy).toHaveBeenCalledWith("mem-004");
+    expect(result.isError).toBeFalsy();
+    expect((result.content as Array<{ type: string; text: string }>)[0].text).toBe(
+      "Memory deleted.",
+    );
+  });
+
+  it("returns MCP error results from tool failures", async () => {
+    const { client, mnemoClient } = await createToolPair();
+    vi.spyOn(mnemoClient, "search").mockRejectedValue(
+      new MnemoError("InvalidRequest", "Rate limited. Please retry shortly.", 429),
+    );
+
+    const result = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "rate limit me" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect((result.content as Array<{ type: string; text: string }>)[0].text).toContain(
+      "Error: Rate limited. Please retry shortly.",
+    );
   });
 });

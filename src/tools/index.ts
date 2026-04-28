@@ -10,13 +10,16 @@ export function registerTools(
   server: McpServer,
   client: MnemoClient,
   logger: Logger,
+  options: { searchLimit: number },
 ): void {
+  const { searchLimit } = options;
+
   // memory_store
   server.registerTool(
     "memory_store",
     {
       description:
-        "Store a new memory. The content will be processed asynchronously by the memory service (fact extraction and reconciliation) — it is not stored verbatim and may take a few seconds to become searchable. Use this when you learn something worth remembering: user preferences, project conventions, important decisions, recurring patterns, or any context that would be useful in future sessions. Do NOT store trivial or transient information like current file paths, temporary debug notes, or information that only matters in the current session. Note: the response does not include the stored memory's ID. If you need to update or delete a memory you just stored, use memory_search to find it first.",
+        "Store a new memory. The content will be processed synchronously by the memory service (fact extraction and reconciliation) before the call returns, so it can be searched immediately afterward. It is not stored verbatim. Use this when you learn something worth remembering: user preferences, project conventions, important decisions, recurring patterns, or any context that would be useful in future sessions. Do NOT store trivial or transient information like current file paths, temporary debug notes, or information that only matters in the current session. Note: the response does not include the stored memory's ID. If you need to update or delete a memory you just stored, use memory_search to find it first.",
       inputSchema: {
         content: z.string().describe(
           "The memory content to store. Be specific and self-contained — this should make sense when retrieved later without additional context.",
@@ -33,7 +36,13 @@ export function registerTools(
       },
     },
     async ({ content, tags, metadata, session_id }) => {
-      logger.debug("memory_store", { content: content.slice(0, 100) });
+      logger.debug("memory_store", {
+        contentRedacted: true,
+        contentLength: content.length,
+        tagsCount: tags?.length ?? 0,
+        metadataKeyCount: metadata ? Object.keys(metadata).length : 0,
+        hasSessionId: session_id !== undefined,
+      });
       try {
         await client.store({ content, tags, metadata, session_id });
         return { content: [{ type: "text" as const, text: "Memory stored successfully." }] };
@@ -53,8 +62,8 @@ export function registerTools(
         query: z.string().describe(
           "Natural language search query. Describe what you're looking for — the system handles both semantic and keyword matching.",
         ),
-        limit: z.number().optional().describe(
-          "Maximum number of results to return (default: 10, max: 50).",
+        limit: z.number().int().positive().max(50).optional().default(searchLimit).describe(
+          `Maximum number of results to return (default: ${searchLimit}, max: 50).`,
         ),
         tags: z.array(z.string()).optional().describe(
           "Optional: filter results to only memories with these tags.",
@@ -62,7 +71,12 @@ export function registerTools(
       },
     },
     async ({ query, limit, tags }) => {
-      logger.debug("memory_search", { query: query.slice(0, 100) });
+      logger.debug("memory_search", {
+        queryRedacted: true,
+        queryLength: query.length,
+        limit,
+        tagsCount: tags?.length ?? 0,
+      });
       try {
         const result = await client.search({ query, limit, tags });
         const text = formatSearchResults(result.memories, result.total);

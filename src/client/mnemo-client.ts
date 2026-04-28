@@ -1,6 +1,13 @@
 import type { Config } from "../config/config.js";
 import type { Logger } from "../utils/logger.js";
-import { mapHttpError, isRetryable, MnemoError } from "../errors/error-mapper.js";
+import {
+  createInvalidResponseError,
+  createTimeoutError,
+  createUnexpectedClientError,
+  mapHttpError,
+  isRetryable,
+  MnemoError,
+} from "../errors/error-mapper.js";
 
 /** Memory object returned by mnemo-server. */
 export interface Memory {
@@ -81,6 +88,7 @@ export class MnemoClient {
   async store(options: StoreOptions): Promise<StoreResponse> {
     const body: Record<string, unknown> = {
       content: options.content,
+      sync: true,
     };
     if (options.tags?.length) body.tags = options.tags;
     if (options.metadata) body.metadata = options.metadata;
@@ -177,7 +185,10 @@ export class MnemoClient {
             if (response.status === 429) {
               const retryAfter = response.headers.get("Retry-After");
               if (retryAfter) {
-                error.retryAfterMs = parseInt(retryAfter, 10) * 1000;
+                const retryAfterMs = parseRetryAfterMs(retryAfter);
+                if (retryAfterMs !== undefined) {
+                  error.retryAfterMs = retryAfterMs;
+                }
               }
             }
             lastError = error;
@@ -194,23 +205,107 @@ export class MnemoClient {
         if (err instanceof MnemoError) {
           throw err;
         }
-        // Network / timeout errors.
-        const networkError = mapHttpError(0, String(err));
-        if (attempt < MAX_RETRIES) {
-          lastError = networkError;
+
+        const { error, retryable } = classifyRuntimeError(err, this.timeoutMs);
+        if (retryable && attempt < MAX_RETRIES) {
+          lastError = error;
           continue;
         }
-        throw networkError;
+        throw error;
       }
     }
 
     // Should not reach here, but just in case.
-    throw lastError ?? mapHttpError(0, "request failed after retries");
+    throw lastError ?? createUnexpectedClientError("request failed after retries");
   }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function parseRetryAfterMs(
+  value: string,
+  now = Date.now(),
+): number | undefined {
+  const seconds = Number.parseInt(value, 10);
+  if (!Number.isNaN(seconds) && String(seconds) === value.trim()) {
+    return Math.max(0, seconds * 1000);
+  }
+
+  const retryAt = Date.parse(value);
+  if (Number.isNaN(retryAt)) {
+    return undefined;
+  }
+
+  return Math.max(0, retryAt - now);
+}
+
+function classifyRuntimeError(
+  err: unknown,
+  timeoutMs: number,
+): { error: MnemoError; retryable: boolean } {
+  if (isTimeoutError(err)) {
+    return { error: createTimeoutError(timeoutMs), retryable: true };
+  }
+
+  if (isNetworkError(err)) {
+    return { error: mapHttpError(0, getErrorDetail(err)), retryable: true };
+  }
+
+  if (err instanceof SyntaxError) {
+    return {
+      error: createInvalidResponseError(getErrorDetail(err)),
+      retryable: false,
+    };
+  }
+
+  return {
+    error: createUnexpectedClientError(getErrorDetail(err)),
+    retryable: false,
+  };
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
+function isNetworkError(err: unknown): boolean {
+  if (isTimeoutError(err)) {
+    return true;
+  }
+
+  const detail = getErrorDetail(err);
+  return /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET/i.test(
+    detail,
+  );
+}
+
+function getErrorDetail(err: unknown): string {
+  const details = collectErrorDetails(err);
+  return details.length > 0 ? details.join(": ") : String(err);
+}
+
+function collectErrorDetails(err: unknown, seen = new Set<unknown>()): string[] {
+  if (seen.has(err)) {
+    return [];
+  }
+  seen.add(err);
+
+  if (err instanceof Error) {
+    const details = err.message ? [err.message] : [];
+    if ("cause" in err) {
+      details.push(...collectErrorDetails(err.cause, seen));
+    }
+    return details;
+  }
+
+  if (typeof err === "string") {
+    return [err];
+  }
+
+  return [];
 }
 
 async function responseText(response: Response): Promise<string> {

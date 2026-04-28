@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mapHttpError, isRetryable, MnemoError } from "../../../src/errors/error-mapper.js";
+import {
+  createInvalidResponseError,
+  createTimeoutError,
+  createUnexpectedClientError,
+  mapHttpError,
+  isRetryable,
+  MnemoError,
+} from "../../../src/errors/error-mapper.js";
 
 describe("mapHttpError", () => {
   it("maps 400 to InvalidParams", () => {
@@ -68,5 +75,28 @@ describe("isRetryable", () => {
     expect(isRetryable(401)).toBe(false);
     expect(isRetryable(404)).toBe(false);
     expect(isRetryable(500)).toBe(false);
+  });
+});
+
+describe("local runtime error helpers", () => {
+  it("creates timeout errors", () => {
+    const err = createTimeoutError(5000);
+    expect(err).toBeInstanceOf(MnemoError);
+    expect(err.httpStatus).toBe(408);
+    expect(err.message).toContain("5000ms");
+  });
+
+  it("creates invalid response errors", () => {
+    const err = createInvalidResponseError("Unexpected token <");
+    expect(err).toBeInstanceOf(MnemoError);
+    expect(err.httpStatus).toBe(502);
+    expect(err.message).toContain("invalid response");
+  });
+
+  it("creates unexpected client errors", () => {
+    const err = createUnexpectedClientError("mock bug");
+    expect(err).toBeInstanceOf(MnemoError);
+    expect(err.httpStatus).toBe(500);
+    expect(err.message).toContain("mock bug");
   });
 });

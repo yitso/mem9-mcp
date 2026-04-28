@@ -34,7 +34,9 @@ async function createTestPair() {
   );
 
   const mnemoClient = new MnemoClient(mockConfig, mockLogger);
-  registerTools(mcpServer, mnemoClient, mockLogger);
+  registerTools(mcpServer, mnemoClient, mockLogger, {
+    searchLimit: mockConfig.searchLimit,
+  });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -197,6 +199,11 @@ describe("Integration: Full CRUD roundtrip", () => {
       arguments: { content: "User prefers dark mode", tags: ["preference"] },
     });
     expect(storeResult.isError).toBeFalsy();
+    const storeBody = JSON.parse(
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+        .body as string,
+    );
+    expect(storeBody.sync).toBe(true);
     const storeText = (storeResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(storeText).toContain("stored successfully");
 
@@ -345,6 +352,105 @@ describe("Integration: Error scenarios", () => {
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("Cannot reach");
+  });
+
+  it("returns timeout error instead of connectivity error for slow backends", async () => {
+    const { client } = await createTestPair();
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+
+    const result = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "test" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("timed out");
+    expect(text).not.toContain("Cannot reach");
+  });
+
+  it("returns invalid response error for malformed JSON instead of connectivity error", async () => {
+    const { client } = await createTestPair();
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError("Unexpected token < in JSON")),
+      headers: new Headers(),
+    });
+
+    const result = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "test" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("invalid response");
+    expect(text).not.toContain("Cannot reach");
+  });
+});
+
+describe("Integration: Concurrent tool calls", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("handles parallel searches without cross-talk", async () => {
+    const { client } = await createTestPair();
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      const query = new URL(url).searchParams.get("q");
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            memories: [
+              {
+                id: `mem-${query}`,
+                content: `Memory for ${query}`,
+                memory_type: "insight",
+                source: "mcp",
+                tags: ["parallel"],
+                metadata: null,
+                agent_id: "test-agent",
+                session_id: "",
+                state: "active",
+                version: 1,
+                created_at: "2026-03-29T10:00:00Z",
+                updated_at: "2026-03-29T10:00:00Z",
+                score: 0.95,
+              },
+            ],
+            total: 1,
+            limit: 10,
+            offset: 0,
+          }),
+        headers: new Headers(),
+      });
+    });
+
+    const [alphaResult, betaResult] = await Promise.all([
+      client.callTool({ name: "memory_search", arguments: { query: "alpha" } }),
+      client.callTool({ name: "memory_search", arguments: { query: "beta" } }),
+    ]);
+
+    expect(alphaResult.isError).toBeFalsy();
+    expect(betaResult.isError).toBeFalsy();
+    expect((alphaResult.content as Array<{ type: string; text: string }>)[0].text).toContain(
+      "Memory for alpha",
+    );
+    expect((betaResult.content as Array<{ type: string; text: string }>)[0].text).toContain(
+      "Memory for beta",
+    );
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 
