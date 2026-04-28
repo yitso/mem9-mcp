@@ -36,15 +36,17 @@ export function registerTools(
       },
     },
     async ({ content, tags, metadata, session_id }) => {
+      const normalizedSessionId = session_id === "" ? undefined : session_id;
+
       logger.debug("memory_store", {
         contentRedacted: true,
         contentLength: content.length,
         tagsCount: tags?.length ?? 0,
         metadataKeyCount: metadata ? Object.keys(metadata).length : 0,
-        hasSessionId: session_id !== undefined,
+        hasSessionId: normalizedSessionId !== undefined,
       });
       try {
-        await client.store({ content, tags, metadata, session_id });
+        await client.store({ content, tags, metadata, session_id: normalizedSessionId });
         return { content: [{ type: "text" as const, text: "Memory stored successfully." }] };
       } catch (err) {
         return toolError(err);
